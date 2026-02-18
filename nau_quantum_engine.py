@@ -130,14 +130,20 @@ class WaveletAnalyzer:
         coefficients = np.zeros((len(self.scales), n))
         
         for i, scale in enumerate(self.scales):
-            # Create wavelet at this scale
-            t = np.arange(-4*scale, 4*scale + 1) / scale
+            # Limit kernel size to not exceed data length
+            kernel_half = int(4 * scale)
+            if kernel_half * 2 + 1 > n:
+                kernel_half = max(1, (n - 1) // 2)
+            t = np.arange(-kernel_half, kernel_half + 1) / max(scale, 1)
             wavelet = np.real(self.morlet_wavelet(t))
-            wavelet = wavelet / np.sqrt(scale)
+            wavelet = wavelet / np.sqrt(max(scale, 1))
             
-            # Convolve with data
+            # Convolve with data - ensure output matches input length
             conv = np.convolve(data, wavelet, mode='same')
-            coefficients[i] = conv
+            if len(conv) >= n:
+                coefficients[i] = conv[:n]
+            else:
+                coefficients[i, :len(conv)] = conv
             
         return coefficients
     
@@ -151,9 +157,12 @@ class WaveletAnalyzer:
     def get_trend_component(self, data, threshold_scale=20):
         """Extract trend component (low-frequency)."""
         coefficients = self.cwt(data)
-        # Use only large-scale (low-frequency) components
         mask = self.scales >= threshold_scale
+        if not np.any(mask):
+            return np.zeros(len(data))
         trend = np.mean(coefficients[mask], axis=0)
+        if len(trend) != len(data):
+            trend = np.interp(np.linspace(0, 1, len(data)), np.linspace(0, 1, len(trend)), trend)
         return trend
     
     def get_noise_component(self, data, threshold_scale=5):
